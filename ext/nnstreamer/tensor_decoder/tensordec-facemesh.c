@@ -12,6 +12,8 @@
 void init_fm (void) __attribute__ ((constructor));
 void fini_fm (void) __attribute__ ((destructor));
 
+#define MEDIAPIPE_NUM_FACE_LANDMARKS (468)
+
 /** @brief Internal data structure for face mesh */
 typedef struct {
   /* From option2 */
@@ -22,6 +24,12 @@ typedef struct {
   guint i_width; /**< Input Video Width */
   guint i_height; /**< Input Video Height */
 } face_mesh_data;
+
+typedef struct {
+  int x;
+  int y;
+  int z;
+} landmark_point;
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static int
@@ -51,6 +59,7 @@ fm_exit (void **pdata)
   // TODO: free inner data
   UNUSED (data);
 
+  g_free (*pdata);
   *pdata = NULL;
 }
 
@@ -145,6 +154,46 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
+/**
+ * @brief Draw with the given results (landmark_points[MEDIAPIPE_NUM_FACE_LANDMARKS]) to the output buffer
+ * @param[out] out_info The output buffer (RGBA plain)
+ * @param[in] fmdata The face-mesh internal data.
+ * @param[in] results The final results to be drawn.
+ */
+static void
+draw (GstMapInfo *out_info, face_mesh_data *fmdata, GArray *results)
+{
+  uint32_t *frame = (uint32_t *) out_info->data;
+  uint32_t *pos;
+  unsigned int arr_i;
+
+  for (arr_i = 0; arr_i < results->len; arr_i++) {
+    int x, y;
+    int i, j;
+    int rx, ry;
+    int r = 3;
+    landmark_point *p = &g_array_index (results, landmark_point, arr_i);
+
+    x = (fmdata->width * p->x) / fmdata->i_width;
+    y = (fmdata->height * p->y) / fmdata->i_height;
+    x = MAX (0, x);
+    y = MAX (0, y);
+    x = MIN ((int) fmdata->width - 1, x);
+    y = MIN ((int) fmdata->height - 1, y);
+
+    for (i = -r; i <= r; i++) {
+      for (j = -r; j <= r; j++) {
+        rx = x + i;
+        ry = y + j;
+        if (rx < 0 || rx > (int) fmdata->width || ry < 0 || ry > (int) fmdata->height)
+          continue;
+        pos = &frame[ry * fmdata->width + rx];
+        *pos = 0xFF0000FF;
+      }
+    }
+  }
+}
+
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static GstFlowReturn
 fm_decode (void **pdata, const GstTensorsConfig *config,
@@ -154,14 +203,14 @@ fm_decode (void **pdata, const GstTensorsConfig *config,
   const size_t size = (size_t) data->width * data->height * 4; /* RGBA */
   GstMapInfo out_info;
   GstMemory *out_mem;
+  GArray *results = NULL;
+  const guint num_tensors = config->info.num_tensors;
   gboolean need_output_alloc;
-
-  UNUSED (config);
-  UNUSED (input);
 
   g_assert (outbuf);
   need_output_alloc = gst_buffer_get_size (outbuf) == 0;
 
+  /* Ensure we have outbuf properly allocated */
   if (need_output_alloc) {
     out_mem = gst_allocator_alloc (NULL, size, NULL);
   } else {
@@ -175,10 +224,33 @@ fm_decode (void **pdata, const GstTensorsConfig *config,
     goto error_free;
   }
 
+  /** reset the buffer with alpha 0 / black */
   memset (out_info.data, 0, size);
-  // XXX: for test
-  memset (out_info.data, 0xFF0000FF, size / 2);
-  // TODO: draw face mesh
+
+  {
+    const GstTensorMemory *landmarks;
+    float *landmarks_input;
+    size_t i;
+    // float * faceflag = (float *) (&input[1])->data;
+
+    g_assert (num_tensors == 2);
+    results = g_array_sized_new (
+        FALSE, TRUE, sizeof (landmark_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
+
+    landmarks = &input[0];
+    landmarks_input = (float *) landmarks->data;
+
+    for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
+      int x = (int) landmarks_input[i * 3];
+      int y = (int) landmarks_input[i * 3 + 1];
+      int z = (int) landmarks_input[i * 3 + 2];
+      landmark_point point = { .x = x, .y = y, .z = z };
+      g_array_append_val (results, point);
+    }
+  }
+
+  draw (&out_info, data, results);
+  g_array_free (results, TRUE);
 
   gst_memory_unmap (out_mem, &out_info);
   if (need_output_alloc) {
@@ -198,13 +270,15 @@ error_free:
 static gchar decoder_subplugin_face_mesh[] = "face_mesh";
 
 /** @brief Face Mesh tensordec-plugin GstTensorDecoderDef instance */
-static GstTensorDecoderDef faceMesh = { .modename = decoder_subplugin_face_mesh,
+static GstTensorDecoderDef faceMesh = {
+  .modename = decoder_subplugin_face_mesh,
   .init = fm_init,
   .exit = fm_exit,
   .setOption = fm_setOption,
   .getOutCaps = fm_getOutCaps,
   .getTransformSize = fm_getTransformSize,
-  .decode = fm_decode };
+  .decode = fm_decode,
+};
 
 /** @brief Initialize this object for tensordec-plugin */
 void

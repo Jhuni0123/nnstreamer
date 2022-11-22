@@ -13,6 +13,8 @@ void init_fm (void) __attribute__ ((constructor));
 void fini_fm (void) __attribute__ ((destructor));
 
 #define MEDIAPIPE_NUM_FACE_LANDMARKS (468)
+#define MEDIAPIPE_NUM_LINES (13)
+#define MEDIAPIPE_POINT_SIZE (3)
 
 /** @brief Internal data structure for face mesh */
 typedef struct {
@@ -26,10 +28,15 @@ typedef struct {
 } face_mesh_data;
 
 typedef struct {
+  float x;
+  float y;
+  float z;
+} landmark_point;
+
+typedef struct {
   int x;
   int y;
-  int z;
-} landmark_point;
+} plot_point;
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static int
@@ -70,7 +77,7 @@ fm_setOption (void **pdata, int opNum, const char *param)
   face_mesh_data *data = *pdata;
 
   if (opNum == 0) {
-    /* option1 = face mesh decoding Mode */
+    /* option1 = face mesh decoding mode */
     // TODO
   } else if (opNum == 1) {
     /* option2 = output video size (width:height) */
@@ -154,6 +161,53 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
+// Bresenham's line algorithm
+static void
+draw_single_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x1, int y1)
+{
+  int dx, sx, dy, sy, error;
+  dx = ABS (x1 - x0);
+  sx = x0 < x1 ? 1 : -1;
+  dy = -ABS (y1 - y0);
+  sy = y0 < y1 ? 1 : -1;
+  error = dx + dy;
+
+  while (TRUE) {
+    frame[y0 * fmdata->width + x0] = 0xFFFF0000;
+    if (x0 == x1 && y0 == y1)
+      break;
+    if (error * 2 >= dy) {
+      if (x0 == x1)
+        break;
+      error += dy;
+      x0 += sx;
+    }
+    if (error * 2 <= dx) {
+      if (y0 == y1)
+        break;
+      error += dx;
+      y0 += sy;
+    }
+  }
+}
+
+static void
+draw_line (uint32_t *frame, face_mesh_data *fmdata, GArray *points,
+    const uint32_t *point_idx, int point_idx_len)
+{
+  plot_point *p0, *p1;
+  int i;
+
+  // printf("num points = %d\n", point_idx_len);
+  for (i = 0; i < point_idx_len - 1; i++) {
+    // printf("%d %d\n", point_idx[i], point_idx[i+1]);
+    p0 = &g_array_index (points, plot_point, point_idx[i]);
+    p1 = &g_array_index (points, plot_point, point_idx[i + 1]);
+    // printf("%d %d %d %d\n", p0->x, p0->y, p1->x, p1->y);
+    draw_single_line (frame, fmdata, p0->x, p0->y, p1->x, p1->y);
+  }
+}
+
 /**
  * @brief Draw with the given results (landmark_points[MEDIAPIPE_NUM_FACE_LANDMARKS]) to the output buffer
  * @param[out] out_info The output buffer (RGBA plain)
@@ -163,34 +217,85 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
 static void
 draw (GstMapInfo *out_info, face_mesh_data *fmdata, GArray *results)
 {
+  const uint32_t silhouette[] = { 10, 338, 297, 332, 284, 251, 389, 356, 454,
+    323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+    172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10 };
+  const uint32_t lipsUpperOuter[] = { 61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291 };
+  const uint32_t lipsLowerOuter[] = { 146, 91, 181, 84, 17, 314, 405, 321, 375, 291 };
+  const uint32_t lipsUpperInner[] = { 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308 };
+  const uint32_t lipsLowerInner[] = { 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308 };
+
+  const uint32_t rightEyeUpper0[] = { 246, 161, 160, 159, 158, 157, 173 };
+  const uint32_t rightEyeLower0[] = { 33, 7, 163, 144, 145, 153, 154, 155, 133 };
+
+  const uint32_t rightEyebrowUpper[] = { 70, 63, 105, 66, 107 };
+  const uint32_t rightEyebrowLower[] = { 46, 53, 52, 65, 55 };
+
+  const uint32_t leftEyeUpper0[] = { 466, 388, 387, 386, 385, 384, 398 };
+  const uint32_t leftEyeLower0[] = { 263, 249, 390, 373, 374, 380, 381, 382, 362 };
+
+  const uint32_t leftEyebrowUpper[] = { 300, 293, 334, 296, 336 };
+  const uint32_t leftEyebrowLower[] = { 276, 283, 282, 295, 285 };
+
+  const uint32_t *lines[MEDIAPIPE_NUM_LINES] = {
+    silhouette,
+    lipsUpperOuter,
+    lipsLowerOuter,
+    lipsUpperInner,
+    lipsLowerInner,
+    rightEyeUpper0,
+    rightEyeLower0,
+    rightEyebrowUpper,
+    rightEyebrowLower,
+    leftEyeUpper0,
+    leftEyeLower0,
+    leftEyebrowUpper,
+    leftEyebrowLower,
+  };
+  const int lines_len[MEDIAPIPE_NUM_LINES]
+      = { 37, 11, 10, 11, 11, 7, 9, 5, 5, 7, 9, 5, 5 };
+
+  GArray *points = g_array_sized_new (
+      FALSE, TRUE, sizeof (plot_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
+  int i, j, k;
+  int rx, ry;
+  plot_point *pp;
+
   uint32_t *frame = (uint32_t *) out_info->data;
   uint32_t *pos;
   unsigned int arr_i;
 
   for (arr_i = 0; arr_i < results->len; arr_i++) {
     int x, y;
-    int i, j;
-    int rx, ry;
-    int r = 3;
     landmark_point *p = &g_array_index (results, landmark_point, arr_i);
 
-    x = (fmdata->width * p->x) / fmdata->i_width;
-    y = (fmdata->height * p->y) / fmdata->i_height;
+    x = (int) ((fmdata->width * p->x) / fmdata->i_width);
+    y = (int) ((fmdata->height * p->y) / fmdata->i_height);
     x = MAX (0, x);
     y = MAX (0, y);
     x = MIN ((int) fmdata->width - 1, x);
     y = MIN ((int) fmdata->height - 1, y);
+    g_array_append_val (points, ((plot_point){ .x = x, .y = y }));
+  }
 
-    for (i = -r; i <= r; i++) {
-      for (j = -r; j <= r; j++) {
-        rx = x + i;
-        ry = y + j;
+  // Draw points
+  for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
+    for (j = -MEDIAPIPE_POINT_SIZE; j <= MEDIAPIPE_POINT_SIZE; j++) {
+      for (k = -MEDIAPIPE_POINT_SIZE; k <= MEDIAPIPE_POINT_SIZE; k++) {
+        pp = &g_array_index (points, plot_point, i);
+        rx = pp->x + j;
+        ry = pp->y + k;
         if (rx < 0 || rx > (int) fmdata->width || ry < 0 || ry > (int) fmdata->height)
           continue;
         pos = &frame[ry * fmdata->width + rx];
         *pos = 0xFF0000FF;
       }
     }
+  }
+
+  // Draw lines
+  for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
+    draw_line (frame, fmdata, points, lines[i], lines_len[i]);
   }
 }
 
@@ -241,9 +346,9 @@ fm_decode (void **pdata, const GstTensorsConfig *config,
     landmarks_input = (float *) landmarks->data;
 
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
-      int x = (int) landmarks_input[i * 3];
-      int y = (int) landmarks_input[i * 3 + 1];
-      int z = (int) landmarks_input[i * 3 + 2];
+      float x = landmarks_input[i * 3];
+      float y = landmarks_input[i * 3 + 1];
+      float z = landmarks_input[i * 3 + 2];
       landmark_point point = { .x = x, .y = y, .z = z };
       g_array_append_val (results, point);
     }

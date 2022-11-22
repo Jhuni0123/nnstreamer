@@ -14,7 +14,8 @@ void fini_fm (void) __attribute__ ((destructor));
 
 #define MEDIAPIPE_NUM_FACE_LANDMARKS (468)
 #define MEDIAPIPE_NUM_LINES (13)
-#define MEDIAPIPE_POINT_SIZE (3)
+#define MEDIAPIPE_LINE_WIDTH (1)
+#define MEDIAPIPE_POINT_SIZE (2)
 
 /** @brief Internal data structure for face mesh */
 typedef struct {
@@ -161,9 +162,23 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
+static void draw_point (uint32_t *frame, face_mesh_data *fmdata, int px, int py, int r, uint32_t color)
+{
+  int i, j, x, y;
+  for (i = -r; i <= r; i++) {
+    for (j = -r; j <= r; j++) {
+      x = px + i;
+      y = py + j;
+      if (x < 0 || x > (int) fmdata->width || y < 0 || y > (int) fmdata->height)
+        continue;
+      frame[y * fmdata->width + x] = color;
+    }
+  }
+}
+
 // Bresenham's line algorithm
 static void
-draw_single_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x1, int y1)
+draw_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x1, int y1)
 {
   int dx, sx, dy, sy, error;
   dx = ABS (x1 - x0);
@@ -173,7 +188,7 @@ draw_single_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x
   error = dx + dy;
 
   while (TRUE) {
-    frame[y0 * fmdata->width + x0] = 0xFFFF0000;
+    draw_point(frame, fmdata, x0, y0, MEDIAPIPE_LINE_WIDTH, 0xFFFF0000);
     if (x0 == x1 && y0 == y1)
       break;
     if (error * 2 >= dy) {
@@ -192,7 +207,7 @@ draw_single_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x
 }
 
 static void
-draw_line (uint32_t *frame, face_mesh_data *fmdata, GArray *points,
+draw_lines (uint32_t *frame, face_mesh_data *fmdata, GArray *points,
     const uint32_t *point_idx, int point_idx_len)
 {
   plot_point *p0, *p1;
@@ -204,7 +219,7 @@ draw_line (uint32_t *frame, face_mesh_data *fmdata, GArray *points,
     p0 = &g_array_index (points, plot_point, point_idx[i]);
     p1 = &g_array_index (points, plot_point, point_idx[i + 1]);
     // printf("%d %d %d %d\n", p0->x, p0->y, p1->x, p1->y);
-    draw_single_line (frame, fmdata, p0->x, p0->y, p1->x, p1->y);
+    draw_line (frame, fmdata, p0->x, p0->y, p1->x, p1->y);
   }
 }
 
@@ -257,12 +272,10 @@ draw (GstMapInfo *out_info, face_mesh_data *fmdata, GArray *results)
 
   GArray *points = g_array_sized_new (
       FALSE, TRUE, sizeof (plot_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
-  int i, j, k;
-  int rx, ry;
+  int i;
   plot_point *pp;
 
   uint32_t *frame = (uint32_t *) out_info->data;
-  uint32_t *pos;
   unsigned int arr_i;
 
   for (arr_i = 0; arr_i < results->len; arr_i++) {
@@ -278,24 +291,15 @@ draw (GstMapInfo *out_info, face_mesh_data *fmdata, GArray *results)
     g_array_append_val (points, ((plot_point){ .x = x, .y = y }));
   }
 
-  // Draw points
-  for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
-    for (j = -MEDIAPIPE_POINT_SIZE; j <= MEDIAPIPE_POINT_SIZE; j++) {
-      for (k = -MEDIAPIPE_POINT_SIZE; k <= MEDIAPIPE_POINT_SIZE; k++) {
-        pp = &g_array_index (points, plot_point, i);
-        rx = pp->x + j;
-        ry = pp->y + k;
-        if (rx < 0 || rx > (int) fmdata->width || ry < 0 || ry > (int) fmdata->height)
-          continue;
-        pos = &frame[ry * fmdata->width + rx];
-        *pos = 0xFF0000FF;
-      }
-    }
-  }
-
   // Draw lines
   for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
-    draw_line (frame, fmdata, points, lines[i], lines_len[i]);
+    draw_lines (frame, fmdata, points, lines[i], lines_len[i]);
+  }
+
+  // Draw points
+  for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
+    pp = &g_array_index (points, plot_point, i);
+    draw_point(frame, fmdata, pp->x, pp->y, MEDIAPIPE_POINT_SIZE, 0xFF0000FF);
   }
 }
 

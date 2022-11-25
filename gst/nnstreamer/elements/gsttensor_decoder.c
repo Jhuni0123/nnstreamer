@@ -221,10 +221,11 @@ gst_tensordec_media_caps_from_tensor (GstTensorDecoder * self,
   if (self->decoder == NULL) {
     if (self->is_custom) {
       GstCaps *caps;
-      caps = gst_caps_from_string ("application/octet-stream");
-      if (config->rate_n >= 0 && config->rate_d > 0)
-        gst_caps_set_simple (caps, "framerate",
-            GST_TYPE_FRACTION, config->rate_n, config->rate_d, NULL);
+      caps = gst_caps_new_any ();
+      // caps = gst_caps_from_string ("application/octet-stream");
+      // if (config->rate_n >= 0 && config->rate_d > 0)
+      //   gst_caps_set_simple (caps, "framerate",
+      //       GST_TYPE_FRACTION, config->rate_n, config->rate_d, NULL);
       return caps;
     }
     GST_ERROR_OBJECT (self, "Decoder plugin is not yet configured.");

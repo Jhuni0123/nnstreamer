@@ -76,12 +76,14 @@ typedef struct {
   guint i_height; /**< Input Video Height */
 } face_landmark_data;
 
+/** @brief Model output data of mediapipe mode */
 typedef struct {
   float x;
   float y;
   float z;
 } landmark_point;
 
+/** @brief Converted point for plotting */
 typedef struct {
   int x;
   int y;
@@ -250,7 +252,15 @@ fl_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
-/** @brief tensordec-plugin's GstTensorDecoderDef callback */
+/**
+ * @brief draw one point in square
+ * @param[out] frame The frame to be drawn
+ * @param[in] fldata The face-landmark internal data
+ * @param[in] px x-coordinate of point
+ * @param[in] py y-coordinate of point
+ * @param[in] r size of square (2 * r) by (2 * r)
+ * @param[in] color color of point (RGBA)
+ */
 static void
 draw_point (uint32_t *frame, face_landmark_data *fldata, int px, int py, int r, uint32_t color)
 {
@@ -266,7 +276,15 @@ draw_point (uint32_t *frame, face_landmark_data *fldata, int px, int py, int r, 
   }
 }
 
-// Bresenham's line algorithm
+/**
+ * @brief draw one line between two points using Bresenham's line algorithm
+ * @param[out] frame The frame to be drawn
+ * @param[in] fldata The face-landmark internal data
+ * @param[in] x0 x-coordinate of point-0
+ * @param[in] y0 y-coordinate of point-0
+ * @param[in] x1 x-coordinate of point-1
+ * @param[in] y1 y-coordinate of point-1
+ */
 static void
 draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, int y1)
 {
@@ -296,6 +314,14 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
   }
 }
 
+/**
+ * @brief draw one line between two points using Bresenham's line algorithm
+ * @param[out] frame The frame to be drawn
+ * @param[in] fldata The face-landmark internal data
+ * @param[in] points The array of all landmark points
+ * @param[in] point_idx The array of idx in points to be drawn
+ * @param[in] point_idx_len The length of point_idx
+ */
 static void
 draw_lines (uint32_t *frame, face_landmark_data *fldata, GArray *points,
     const uint32_t *point_idx, int point_idx_len)

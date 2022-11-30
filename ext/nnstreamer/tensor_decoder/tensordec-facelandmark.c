@@ -198,6 +198,12 @@ _check_tensors (const GstTensorsConfig *config, const unsigned int limit)
 
 /**
  * @brief tensordec-plugin's GstTensorDecoderDef callback
+ *
+ * [mediapipe]
+ * The first tensor is points of face landmarks.
+ *    (3 * MEDIAPIPE_NUM_FACE_LANDMARKS) : 1 : 1 : 1
+ * The second tensor is likelihood of face being present
+ *    1 : 1 : 1 : 1
  */
 static GstCaps *
 fl_getOutCaps (void **pdata, const GstTensorsConfig *config)
@@ -213,7 +219,7 @@ fl_getOutCaps (void **pdata, const GstTensorsConfig *config)
     if (!_check_tensors (config, 2U))
       return NULL;
 
-    g_return_val_if_fail (dim1[0] == 1404, NULL);
+    g_return_val_if_fail (dim1[0] == 3 * MEDIAPIPE_NUM_FACE_LANDMARKS, NULL);
     for (i = 1; i < 4; ++i)
       g_return_val_if_fail (dim1[i] == 1, NULL);
     for (i = 0; i < 4; ++i)

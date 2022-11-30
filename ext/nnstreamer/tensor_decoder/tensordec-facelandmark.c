@@ -20,8 +20,7 @@ void fini_fm (void) __attribute__ ((destructor));
 /**
  * @brief face landmark model enum
  */
-typedef enum
-{
+typedef enum {
   MEDIAPIPE_FACE_LANDMARK = 0,
 
   FACE_LANDMARK_UNKNOWN,
@@ -140,23 +139,22 @@ fm_setOption (void **pdata, int opNum, const char *param)
 
 /**
  * @brief check the num_tensors is valid
-*/
+ */
 static int
-_check_tensors (const GstTensorsConfig * config, const unsigned int limit)
+_check_tensors (const GstTensorsConfig *config, const unsigned int limit)
 {
   unsigned int i;
   g_return_val_if_fail (config != NULL, FALSE);
   g_return_val_if_fail (config->info.num_tensors >= limit, FALSE);
   if (config->info.num_tensors > limit) {
     GST_WARNING ("tensor-decoder:boundingbox accepts %d or less tensors. "
-        "You are wasting the bandwidth by supplying %d tensors.",
+                 "You are wasting the bandwidth by supplying %d tensors.",
         limit, config->info.num_tensors);
   }
 
   /* tensor-type of the tensors shoule be the same */
   for (i = 1; i < config->info.num_tensors; ++i) {
-    g_return_val_if_fail (config->info.info[i - 1].type ==
-        config->info.info[i].type, FALSE);
+    g_return_val_if_fail (config->info.info[i - 1].type == config->info.info[i].type, FALSE);
   }
   return TRUE;
 }
@@ -175,7 +173,7 @@ fm_getOutCaps (void **pdata, const GstTensorsConfig *config)
   if (data->mode == MEDIAPIPE_FACE_LANDMARK) {
     const guint *dim1 = config->info.info[0].dimension;
     const guint *dim2 = config->info.info[1].dimension;
-    if (!_check_tensors(config, 2U))
+    if (!_check_tensors (config, 2U))
       return NULL;
 
     g_return_val_if_fail (dim1[0] == 1404, NULL);
@@ -209,7 +207,8 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
-static void draw_point (uint32_t *frame, face_landmark_data *fmdata, int px, int py, int r, uint32_t color)
+static void
+draw_point (uint32_t *frame, face_landmark_data *fmdata, int px, int py, int r, uint32_t color)
 {
   int i, j, x, y;
   for (i = -r; i <= r; i++) {
@@ -235,7 +234,7 @@ draw_line (uint32_t *frame, face_landmark_data *fmdata, int x0, int y0, int x1, 
   error = dx + dy;
 
   while (TRUE) {
-    draw_point(frame, fmdata, x0, y0, MEDIAPIPE_LINE_WIDTH, 0xFFFF0000);
+    draw_point (frame, fmdata, x0, y0, MEDIAPIPE_LINE_WIDTH, 0xFFFF0000);
     if (x0 == x1 && y0 == y1)
       break;
     if (error * 2 >= dy) {
@@ -346,7 +345,7 @@ draw (GstMapInfo *out_info, face_landmark_data *fmdata, GArray *results)
   // Draw points
   for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
     pp = &g_array_index (points, plot_point, i);
-    draw_point(frame, fmdata, pp->x, pp->y, MEDIAPIPE_POINT_SIZE, 0xFF0000FF);
+    draw_point (frame, fmdata, pp->x, pp->y, MEDIAPIPE_POINT_SIZE, 0xFF0000FF);
   }
 }
 

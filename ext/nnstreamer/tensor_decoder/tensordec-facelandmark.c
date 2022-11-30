@@ -63,6 +63,14 @@ typedef enum {
   FACE_LANDMARK_UNKNOWN,
 } face_landmark_modes;
 
+/**
+ * @brief List of face-landmark decoding schemes in string
+ */
+static const char *fl_modes[] = {
+  [MEDIAPIPE_FACE_LANDMARK] = "mediapipe-face-landmark",
+  NULL,
+};
+
 /** @brief Internal data structure for face landmark */
 typedef struct {
   face_landmark_modes mode; /**< The face landmark decoding mode */
@@ -101,6 +109,7 @@ fl_init (void **pdata)
     return FALSE;
   }
 
+  data->mode = FACE_LANDMARK_UNKNOWN;
   data->width = 0;
   data->height = 0;
   data->i_width = 0;
@@ -129,7 +138,7 @@ fl_setOption (void **pdata, int opNum, const char *param)
 
   if (opNum == 0) {
     /* option1 = face landmark decoding mode */
-    // TODO
+    data->mode = find_key_strv (fl_modes, param);
   } else if (opNum == 1) {
     /* option2 = output video size (width:height) */
     tensor_dim dim;
@@ -452,7 +461,7 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
   /** reset the buffer with alpha 0 / black */
   memset (out_info.data, 0, size);
 
-  {
+  if (data->mode == MEDIAPIPE_FACE_LANDMARK) {
     const GstTensorMemory *landmarks;
     float *landmarks_input;
     size_t i;
@@ -472,12 +481,16 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
       landmark_point point = { .x = x, .y = y, .z = z };
       g_array_append_val (results, point);
     }
+  } else {
+    GST_ERROR ("Failed to get output buffer, unknown mode %d.", data->mode);
+    goto error_unmap;
   }
 
   draw (&out_info, data, results);
   g_array_free (results, TRUE);
 
   gst_memory_unmap (out_mem, &out_info);
+
   if (need_output_alloc) {
     gst_buffer_append_memory (outbuf, out_mem);
   } else {
@@ -486,6 +499,8 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
 
   return GST_FLOW_OK;
 
+error_unmap:
+  gst_memory_unmap (out_mem, &out_info);
 error_free:
   gst_memory_unref (out_mem);
 

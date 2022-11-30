@@ -1,3 +1,40 @@
+/**
+ * GStreamer / NNStreamer tensor_decoder subplugin, "face landmark"
+ * Copyright (C) 2022 Jonghun Park <whdgnsdl887@gmail.com>
+ * Copyright (C) 2022 Youngchan Lee <youngchan1115@gmail.com>
+ * Copyright (C) 2022 Changmin Choi <cmchoi9901@gmail.com>
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation;
+ * version 2.1 of the License.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Library General Public License for more details.
+ *
+ */
+/**
+ * @file	      tensordec-facelandmark.c
+ * @date	      30 Nov 2022
+ * @brief	      NNStreamer tensor-decoder subplugin, "face landmark",
+ *              which converts tensors to video stream w/ face landmarks
+ *              on transparent background.
+ *
+ * @see		      https://github.com/nnstreamer/nnstreamer
+ * @author      Jonghun Park <whdgnsdl887@gmail.com>
+ *              Youngchan Lee <youngchan1115@gmail.com>
+ *              Changmin Choi <cmchoi9901@gmail.com>
+ * @bug         No known bugs except for NYI items
+ *
+ * option1: Decoder mode of face landmark.
+ *          Available: mediapipe
+ * option2: Output video size (width, height)
+ * option3: Input video size (width, height)
+ *
+ */
+
 #include <glib.h>
 #include <gst/gstinfo.h>
 #include <nnstreamer_log.h>

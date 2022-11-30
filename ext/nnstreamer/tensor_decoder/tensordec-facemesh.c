@@ -17,8 +17,20 @@ void fini_fm (void) __attribute__ ((destructor));
 #define MEDIAPIPE_LINE_WIDTH (1)
 #define MEDIAPIPE_POINT_SIZE (2)
 
+/**
+ * @brief face landmark model enum
+ */
+typedef enum
+{
+  MEDIAPIPE_FACE_LANDMARK = 0,
+
+  FACE_LANDMARK_UNKNOWN,
+} face_landmark_modes;
+
 /** @brief Internal data structure for face mesh */
 typedef struct {
+  face_landmark_modes mode; /**< The face landmark decoding mode */
+
   /* From option2 */
   guint width; /**< Output Video Width */
   guint height; /**< Output Video Height */
@@ -126,17 +138,52 @@ fm_setOption (void **pdata, int opNum, const char *param)
   return TRUE;
 }
 
-/** @brief tensordec-plugin's GstTensorDecoderDef callback */
+/**
+ * @brief check the num_tensors is valid
+*/
+static int
+_check_tensors (const GstTensorsConfig * config, const unsigned int limit)
+{
+  unsigned int i;
+  g_return_val_if_fail (config != NULL, FALSE);
+  g_return_val_if_fail (config->info.num_tensors >= limit, FALSE);
+  if (config->info.num_tensors > limit) {
+    GST_WARNING ("tensor-decoder:boundingbox accepts %d or less tensors. "
+        "You are wasting the bandwidth by supplying %d tensors.",
+        limit, config->info.num_tensors);
+  }
+
+  /* tensor-type of the tensors shoule be the same */
+  for (i = 1; i < config->info.num_tensors; ++i) {
+    g_return_val_if_fail (config->info.info[i - 1].type ==
+        config->info.info[i].type, FALSE);
+  }
+  return TRUE;
+}
+
+/**
+ * @brief tensordec-plugin's GstTensorDecoderDef callback
+ */
 static GstCaps *
 fm_getOutCaps (void **pdata, const GstTensorsConfig *config)
 {
   face_mesh_data *data = *pdata;
   GstCaps *caps;
+  int i;
   char *str;
 
-  // TODO: check the input tensor structure (config)
-  g_return_val_if_fail (config != NULL, NULL);
-  g_return_val_if_fail (config->info.num_tensors >= 1, NULL);
+  if (data->mode == MEDIAPIPE_FACE_LANDMARK) {
+    const guint *dim1 = config->info.info[0].dimension;
+    const guint *dim2 = config->info.info[1].dimension;
+    if (!_check_tensors(config, 2U))
+      return NULL;
+
+    g_return_val_if_fail (dim1[0] == 1404, NULL);
+    for (i = 1; i < 4; ++i)
+      g_return_val_if_fail (dim1[i] == 1, NULL);
+    for (i = 0; i < 4; ++i)
+      g_return_val_if_fail (dim2[i] == 1, NULL);
+  }
 
   str = g_strdup_printf ("video/x-raw, format = RGBA, width = %u, height = %u",
       data->width, data->height);

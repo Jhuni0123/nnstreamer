@@ -27,7 +27,7 @@ typedef enum
   FACE_LANDMARK_UNKNOWN,
 } face_landmark_modes;
 
-/** @brief Internal data structure for face mesh */
+/** @brief Internal data structure for face landmark */
 typedef struct {
   face_landmark_modes mode; /**< The face landmark decoding mode */
 
@@ -38,7 +38,7 @@ typedef struct {
   /* From option3 */
   guint i_width; /**< Input Video Width */
   guint i_height; /**< Input Video Height */
-} face_mesh_data;
+} face_landmark_data;
 
 typedef struct {
   float x;
@@ -55,9 +55,9 @@ typedef struct {
 static int
 fm_init (void **pdata)
 {
-  face_mesh_data *data;
+  face_landmark_data *data;
 
-  data = *pdata = g_new0 (face_mesh_data, 1);
+  data = *pdata = g_new0 (face_landmark_data, 1);
   if (*pdata == NULL) {
     GST_ERROR ("Failed to allocate memory for decoder subplugin.");
     return FALSE;
@@ -75,7 +75,7 @@ fm_init (void **pdata)
 static void
 fm_exit (void **pdata)
 {
-  face_mesh_data *data = *pdata;
+  face_landmark_data *data = *pdata;
   // TODO: free inner data
   UNUSED (data);
 
@@ -87,10 +87,10 @@ fm_exit (void **pdata)
 static int
 fm_setOption (void **pdata, int opNum, const char *param)
 {
-  face_mesh_data *data = *pdata;
+  face_landmark_data *data = *pdata;
 
   if (opNum == 0) {
-    /* option1 = face mesh decoding mode */
+    /* option1 = face landmark decoding mode */
     // TODO
   } else if (opNum == 1) {
     /* option2 = output video size (width:height) */
@@ -101,12 +101,12 @@ fm_setOption (void **pdata, int opNum, const char *param)
       return TRUE;
 
     if (rank < 2) {
-      GST_ERROR ("mode-option-2 of facemesh is output video dimension (WIDTH:HEIGHT). The given parameter, \"%s\", is not acceptable.",
+      GST_ERROR ("mode-option-2 of facelandmark is output video dimension (WIDTH:HEIGHT). The given parameter, \"%s\", is not acceptable.",
           param);
       return TRUE; /* Ignore this param */
     }
     if (rank > 2) {
-      GST_WARNING ("mode-option-2 of facemesh is output video dimension (WIDTH:HEIGHT). The third and later elements of the given parameter, \"%s\", are ignored.",
+      GST_WARNING ("mode-option-2 of facelandmark is output video dimension (WIDTH:HEIGHT). The third and later elements of the given parameter, \"%s\", are ignored.",
           param);
     }
     data->width = dim[0];
@@ -121,12 +121,12 @@ fm_setOption (void **pdata, int opNum, const char *param)
       return TRUE;
 
     if (rank < 2) {
-      GST_ERROR ("mode-option-3 of facemesh is input video dimension (WIDTH:HEIGHT). The given parameter, \"%s\", is not acceptable.",
+      GST_ERROR ("mode-option-3 of facelandmark is input video dimension (WIDTH:HEIGHT). The given parameter, \"%s\", is not acceptable.",
           param);
       return TRUE; /* Ignore this param */
     }
     if (rank > 2) {
-      GST_WARNING ("mode-option-3 of facemesh is input video dimension (WIDTH:HEIGHT). The third and later elements of the given parameter, \"%s\", are ignored.",
+      GST_WARNING ("mode-option-3 of facelandmark is input video dimension (WIDTH:HEIGHT). The third and later elements of the given parameter, \"%s\", are ignored.",
           param);
     }
     data->i_width = dim[0];
@@ -167,7 +167,7 @@ _check_tensors (const GstTensorsConfig * config, const unsigned int limit)
 static GstCaps *
 fm_getOutCaps (void **pdata, const GstTensorsConfig *config)
 {
-  face_mesh_data *data = *pdata;
+  face_landmark_data *data = *pdata;
   GstCaps *caps;
   int i;
   char *str;
@@ -209,7 +209,7 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
-static void draw_point (uint32_t *frame, face_mesh_data *fmdata, int px, int py, int r, uint32_t color)
+static void draw_point (uint32_t *frame, face_landmark_data *fmdata, int px, int py, int r, uint32_t color)
 {
   int i, j, x, y;
   for (i = -r; i <= r; i++) {
@@ -225,7 +225,7 @@ static void draw_point (uint32_t *frame, face_mesh_data *fmdata, int px, int py,
 
 // Bresenham's line algorithm
 static void
-draw_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x1, int y1)
+draw_line (uint32_t *frame, face_landmark_data *fmdata, int x0, int y0, int x1, int y1)
 {
   int dx, sx, dy, sy, error;
   dx = ABS (x1 - x0);
@@ -254,7 +254,7 @@ draw_line (uint32_t *frame, face_mesh_data *fmdata, int x0, int y0, int x1, int 
 }
 
 static void
-draw_lines (uint32_t *frame, face_mesh_data *fmdata, GArray *points,
+draw_lines (uint32_t *frame, face_landmark_data *fmdata, GArray *points,
     const uint32_t *point_idx, int point_idx_len)
 {
   plot_point *p0, *p1;
@@ -273,11 +273,11 @@ draw_lines (uint32_t *frame, face_mesh_data *fmdata, GArray *points,
 /**
  * @brief Draw with the given results (landmark_points[MEDIAPIPE_NUM_FACE_LANDMARKS]) to the output buffer
  * @param[out] out_info The output buffer (RGBA plain)
- * @param[in] fmdata The face-mesh internal data.
+ * @param[in] fmdata The face-landmark internal data.
  * @param[in] results The final results to be drawn.
  */
 static void
-draw (GstMapInfo *out_info, face_mesh_data *fmdata, GArray *results)
+draw (GstMapInfo *out_info, face_landmark_data *fmdata, GArray *results)
 {
   const uint32_t silhouette[] = { 10, 338, 297, 332, 284, 251, 389, 356, 454,
     323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
@@ -355,7 +355,7 @@ static GstFlowReturn
 fm_decode (void **pdata, const GstTensorsConfig *config,
     const GstTensorMemory *input, GstBuffer *outbuf)
 {
-  face_mesh_data *data = *pdata;
+  face_landmark_data *data = *pdata;
   const size_t size = (size_t) data->width * data->height * 4; /* RGBA */
   GstMapInfo out_info;
   GstMemory *out_mem;
@@ -376,7 +376,7 @@ fm_decode (void **pdata, const GstTensorsConfig *config,
     out_mem = gst_buffer_get_all_memory (outbuf);
   }
   if (!gst_memory_map (out_mem, &out_info, GST_MAP_WRITE)) {
-    ml_loge ("Cannot map output memory / tensordec-face_mesh.\n");
+    ml_loge ("Cannot map output memory / tensordec-face_landmark.\n");
     goto error_free;
   }
 
@@ -423,11 +423,11 @@ error_free:
   return GST_FLOW_ERROR;
 }
 
-static gchar decoder_subplugin_face_mesh[] = "face_mesh";
+static gchar decoder_subplugin_face_landmark[] = "face_landmark";
 
-/** @brief Face Mesh tensordec-plugin GstTensorDecoderDef instance */
-static GstTensorDecoderDef faceMesh = {
-  .modename = decoder_subplugin_face_mesh,
+/** @brief Face Landmark tensordec-plugin GstTensorDecoderDef instance */
+static GstTensorDecoderDef faceLandmark = {
+  .modename = decoder_subplugin_face_landmark,
   .init = fm_init,
   .exit = fm_exit,
   .setOption = fm_setOption,
@@ -440,12 +440,12 @@ static GstTensorDecoderDef faceMesh = {
 void
 init_fm (void)
 {
-  nnstreamer_decoder_probe (&faceMesh);
+  nnstreamer_decoder_probe (&faceLandmark);
 }
 
 /** @brief Destruct this object for tensordec-plugin */
 void
 fini_fm (void)
 {
-  nnstreamer_decoder_exit (faceMesh.modename);
+  nnstreamer_decoder_exit (faceLandmark.modename);
 }

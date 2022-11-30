@@ -225,25 +225,25 @@ static_library('nnstreamer_decoder_octet_stream',
   install_dir: nnstreamer_libdir
 )
 
-# face mesh
-decoder_sub_face_mesh_sources = [
-  'tensordec-facemesh.c',
+# face landmark
+decoder_sub_face_landmark_sources = [
+  'tensordec-facelandmark.c',
   'tensordecutil.c'
 ]
 
-nnstreamer_decoder_face_mesh_sources = []
-foreach s : decoder_sub_face_mesh_sources
-  nnstreamer_decoder_face_mesh_sources += join_paths(meson.current_source_dir(), s)
+nnstreamer_decoder_face_landmark_sources = []
+foreach s : decoder_sub_face_landmark_sources
+  nnstreamer_decoder_face_landmark_sources += join_paths(meson.current_source_dir(), s)
 endforeach
 
-shared_library('nnstreamer_decoder_face_mesh',
-  nnstreamer_decoder_face_mesh_sources,
+shared_library('nnstreamer_decoder_face_landmark',
+  nnstreamer_decoder_face_landmark_sources,
   dependencies: [nnstreamer_dep, glib_dep, gst_dep],
   install: true,
   install_dir: decoder_subplugin_install_dir
 )
-static_library('nnstreamer_decoder_face_mesh',
-  nnstreamer_decoder_face_mesh_sources,
+static_library('nnstreamer_decoder_face_landmark',
+  nnstreamer_decoder_face_landmark_sources,
   dependencies: [nnstreamer_dep, glib_dep, gst_dep],
   install: true,
   install_dir: nnstreamer_libdir

@@ -46,8 +46,8 @@
 #include <string.h>
 #include "tensordecutil.h"
 
-void init_fm (void) __attribute__ ((constructor));
-void fini_fm (void) __attribute__ ((destructor));
+void init_fl (void) __attribute__ ((constructor));
+void fini_fl (void) __attribute__ ((destructor));
 
 #define MEDIAPIPE_NUM_FACE_LANDMARKS (468)
 #define MEDIAPIPE_NUM_LINES (13)
@@ -89,7 +89,7 @@ typedef struct {
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static int
-fm_init (void **pdata)
+fl_init (void **pdata)
 {
   face_landmark_data *data;
 
@@ -109,7 +109,7 @@ fm_init (void **pdata)
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static void
-fm_exit (void **pdata)
+fl_exit (void **pdata)
 {
   face_landmark_data *data = *pdata;
   // TODO: free inner data
@@ -121,7 +121,7 @@ fm_exit (void **pdata)
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static int
-fm_setOption (void **pdata, int opNum, const char *param)
+fl_setOption (void **pdata, int opNum, const char *param)
 {
   face_landmark_data *data = *pdata;
 
@@ -200,7 +200,7 @@ _check_tensors (const GstTensorsConfig *config, const unsigned int limit)
  * @brief tensordec-plugin's GstTensorDecoderDef callback
  */
 static GstCaps *
-fm_getOutCaps (void **pdata, const GstTensorsConfig *config)
+fl_getOutCaps (void **pdata, const GstTensorsConfig *config)
 {
   face_landmark_data *data = *pdata;
   GstCaps *caps;
@@ -231,7 +231,7 @@ fm_getOutCaps (void **pdata, const GstTensorsConfig *config)
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static size_t
-fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
+fl_getTransformSize (void **pdata, const GstTensorsConfig *config,
     GstCaps *caps, size_t size, GstCaps *othercaps, GstPadDirection direction)
 {
   UNUSED (pdata);
@@ -244,24 +244,25 @@ fm_getTransformSize (void **pdata, const GstTensorsConfig *config,
   return 0;
 }
 
+/** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static void
-draw_point (uint32_t *frame, face_landmark_data *fmdata, int px, int py, int r, uint32_t color)
+draw_point (uint32_t *frame, face_landmark_data *fldata, int px, int py, int r, uint32_t color)
 {
   int i, j, x, y;
   for (i = -r; i <= r; i++) {
     for (j = -r; j <= r; j++) {
       x = px + i;
       y = py + j;
-      if (x < 0 || x > (int) fmdata->width || y < 0 || y > (int) fmdata->height)
+      if (x < 0 || x > (int) fldata->width || y < 0 || y > (int) fldata->height)
         continue;
-      frame[y * fmdata->width + x] = color;
+      frame[y * fldata->width + x] = color;
     }
   }
 }
 
 // Bresenham's line algorithm
 static void
-draw_line (uint32_t *frame, face_landmark_data *fmdata, int x0, int y0, int x1, int y1)
+draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, int y1)
 {
   int dx, sx, dy, sy, error;
   dx = ABS (x1 - x0);
@@ -271,7 +272,7 @@ draw_line (uint32_t *frame, face_landmark_data *fmdata, int x0, int y0, int x1, 
   error = dx + dy;
 
   while (TRUE) {
-    draw_point (frame, fmdata, x0, y0, MEDIAPIPE_LINE_WIDTH, 0xFFFF0000);
+    draw_point (frame, fldata, x0, y0, MEDIAPIPE_LINE_WIDTH, 0xFFFF0000);
     if (x0 == x1 && y0 == y1)
       break;
     if (error * 2 >= dy) {
@@ -290,7 +291,7 @@ draw_line (uint32_t *frame, face_landmark_data *fmdata, int x0, int y0, int x1, 
 }
 
 static void
-draw_lines (uint32_t *frame, face_landmark_data *fmdata, GArray *points,
+draw_lines (uint32_t *frame, face_landmark_data *fldata, GArray *points,
     const uint32_t *point_idx, int point_idx_len)
 {
   plot_point *p0, *p1;
@@ -302,18 +303,18 @@ draw_lines (uint32_t *frame, face_landmark_data *fmdata, GArray *points,
     p0 = &g_array_index (points, plot_point, point_idx[i]);
     p1 = &g_array_index (points, plot_point, point_idx[i + 1]);
     // printf("%d %d %d %d\n", p0->x, p0->y, p1->x, p1->y);
-    draw_line (frame, fmdata, p0->x, p0->y, p1->x, p1->y);
+    draw_line (frame, fldata, p0->x, p0->y, p1->x, p1->y);
   }
 }
 
 /**
  * @brief Draw with the given results (landmark_points[MEDIAPIPE_NUM_FACE_LANDMARKS]) to the output buffer
  * @param[out] out_info The output buffer (RGBA plain)
- * @param[in] fmdata The face-landmark internal data.
+ * @param[in] fldata The face-landmark internal data.
  * @param[in] results The final results to be drawn.
  */
 static void
-draw (GstMapInfo *out_info, face_landmark_data *fmdata, GArray *results)
+draw (GstMapInfo *out_info, face_landmark_data *fldata, GArray *results)
 {
   const uint32_t silhouette[] = { 10, 338, 297, 332, 284, 251, 389, 356, 454,
     323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
@@ -365,30 +366,30 @@ draw (GstMapInfo *out_info, face_landmark_data *fmdata, GArray *results)
     int x, y;
     landmark_point *p = &g_array_index (results, landmark_point, arr_i);
 
-    x = (int) ((fmdata->width * p->x) / fmdata->i_width);
-    y = (int) ((fmdata->height * p->y) / fmdata->i_height);
+    x = (int) ((fldata->width * p->x) / fldata->i_width);
+    y = (int) ((fldata->height * p->y) / fldata->i_height);
     x = MAX (0, x);
     y = MAX (0, y);
-    x = MIN ((int) fmdata->width - 1, x);
-    y = MIN ((int) fmdata->height - 1, y);
+    x = MIN ((int) fldata->width - 1, x);
+    y = MIN ((int) fldata->height - 1, y);
     g_array_append_val (points, ((plot_point){ .x = x, .y = y }));
   }
 
   // Draw lines
   for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
-    draw_lines (frame, fmdata, points, lines[i], lines_len[i]);
+    draw_lines (frame, fldata, points, lines[i], lines_len[i]);
   }
 
   // Draw points
   for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
     pp = &g_array_index (points, plot_point, i);
-    draw_point (frame, fmdata, pp->x, pp->y, MEDIAPIPE_POINT_SIZE, 0xFF0000FF);
+    draw_point (frame, fldata, pp->x, pp->y, MEDIAPIPE_POINT_SIZE, 0xFF0000FF);
   }
 }
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
 static GstFlowReturn
-fm_decode (void **pdata, const GstTensorsConfig *config,
+fl_decode (void **pdata, const GstTensorsConfig *config,
     const GstTensorMemory *input, GstBuffer *outbuf)
 {
   face_landmark_data *data = *pdata;
@@ -464,24 +465,24 @@ static gchar decoder_subplugin_face_landmark[] = "face_landmark";
 /** @brief Face Landmark tensordec-plugin GstTensorDecoderDef instance */
 static GstTensorDecoderDef faceLandmark = {
   .modename = decoder_subplugin_face_landmark,
-  .init = fm_init,
-  .exit = fm_exit,
-  .setOption = fm_setOption,
-  .getOutCaps = fm_getOutCaps,
-  .getTransformSize = fm_getTransformSize,
-  .decode = fm_decode,
+  .init = fl_init,
+  .exit = fl_exit,
+  .setOption = fl_setOption,
+  .getOutCaps = fl_getOutCaps,
+  .getTransformSize = fl_getTransformSize,
+  .decode = fl_decode,
 };
 
 /** @brief Initialize this object for tensordec-plugin */
 void
-init_fm (void)
+init_fl (void)
 {
   nnstreamer_decoder_probe (&faceLandmark);
 }
 
 /** @brief Destruct this object for tensordec-plugin */
 void
-fini_fm (void)
+fini_fl (void)
 {
   nnstreamer_decoder_exit (faceLandmark.modename);
 }

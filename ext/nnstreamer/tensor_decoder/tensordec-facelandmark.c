@@ -29,7 +29,7 @@
  * @bug         No known bugs except for NYI items
  *
  * option1: Decoder mode of face landmark.
- *          Available: mediapipe
+ *          Available: mediapipe-face-mesh
  * option2: Output video size (width, height)
  * option3: Input video size (width, height)
  *
@@ -58,7 +58,7 @@ void fini_fl (void) __attribute__ ((destructor));
  * @brief face landmark model enum
  */
 typedef enum {
-  MEDIAPIPE_FACE_LANDMARK = 0,
+  MEDIAPIPE_FACE_MESH = 0,
 
   FACE_LANDMARK_UNKNOWN,
 } face_landmark_modes;
@@ -67,7 +67,7 @@ typedef enum {
  * @brief List of face-landmark decoding schemes in string
  */
 static const char *fl_modes[] = {
-  [MEDIAPIPE_FACE_LANDMARK] = "mediapipe-face-landmark",
+  [MEDIAPIPE_FACE_MESH] = "mediapipe-face-mesh",
   NULL,
 };
 
@@ -84,7 +84,7 @@ typedef struct {
   guint i_height; /**< Input Video Height */
 } face_landmark_data;
 
-/** @brief Model output data of mediapipe mode */
+/** @brief Model output data of mediapipe-face-mesh mode */
 typedef struct {
   float x;
   float y;
@@ -210,7 +210,7 @@ _check_tensors (const GstTensorsConfig *config, const unsigned int limit)
 /**
  * @brief tensordec-plugin's GstTensorDecoderDef callback
  *
- * [mediapipe]
+ * [mediapipe-face-mesh]
  * The first tensor is points of face landmarks.
  *    (3 * MEDIAPIPE_NUM_FACE_LANDMARKS) : 1 : 1 : 1
  * The second tensor is likelihood of face being present
@@ -224,7 +224,7 @@ fl_getOutCaps (void **pdata, const GstTensorsConfig *config)
   int i;
   char *str;
 
-  if (data->mode == MEDIAPIPE_FACE_LANDMARK) {
+  if (data->mode == MEDIAPIPE_FACE_MESH) {
     const guint *dim1 = config->info.info[0].dimension;
     const guint *dim2 = config->info.info[1].dimension;
     if (!_check_tensors (config, 2U))
@@ -461,7 +461,7 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
   /** reset the buffer with alpha 0 / black */
   memset (out_info.data, 0, size);
 
-  if (data->mode == MEDIAPIPE_FACE_LANDMARK) {
+  if (data->mode == MEDIAPIPE_FACE_MESH) {
     const GstTensorMemory *landmarks;
     float *landmarks_input;
     size_t i;

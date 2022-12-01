@@ -75,18 +75,12 @@ static const char *fl_modes[] = {
   NULL,
 };
 
-/** @brief Model output data of mediapipe-face-mesh mode */
-typedef struct {
-  float x;
-  float y;
-  float z;
-} landmark_point;
-
-/** @brief Converted point for plotting */
+/** @brief Represents a landmark point */
 typedef struct {
   int x;
   int y;
-} plot_point;
+  gfloat z;   /* Optional z-axis coordinate */
+} landmark_point;
 
 typedef struct {
   /* face probability */
@@ -98,7 +92,7 @@ typedef struct {
   /* lines */
   const uint32_t **lines; /**< idx 2d array of lines. length is NUM_LANDMARK */
   const int *lines_len; /**< len of each array in lines */
-} _face;
+} face_info;
 
 /** @brief Internal data structure for face landmark */
 typedef struct {
@@ -125,20 +119,20 @@ typedef struct {
 static int
 fl_init (void **pdata)
 {
-  face_landmark_data *data;
+  face_landmark_data *fldata;
 
-  data = *pdata = g_new0 (face_landmark_data, 1);
+  fldata = *pdata = g_new0 (face_landmark_data, 1);
   if (*pdata == NULL) {
     GST_ERROR ("Failed to allocate memory for decoder subplugin.");
     return FALSE;
   }
 
-  data->mode = FACE_LANDMARK_UNKNOWN;
-  data->prob_threshold = 0.5;
-  data->width = 0;
-  data->height = 0;
-  data->i_width = 0;
-  data->i_height = 0;
+  fldata->mode = FACE_LANDMARK_UNKNOWN;
+  fldata->prob_threshold = 0.5;
+  fldata->width = 0;
+  fldata->height = 0;
+  fldata->i_width = 0;
+  fldata->i_height = 0;
 
   return TRUE;
 }
@@ -147,9 +141,9 @@ fl_init (void **pdata)
 static void
 fl_exit (void **pdata)
 {
-  face_landmark_data *data = *pdata;
+  face_landmark_data *fldata = *pdata;
   // TODO: free inner data
-  UNUSED (data);
+  UNUSED (fldata);
 
   g_free (*pdata);
   *pdata = NULL;
@@ -159,18 +153,18 @@ fl_exit (void **pdata)
 static int
 fl_setOption (void **pdata, int opNum, const char *param)
 {
-  face_landmark_data *data = *pdata;
+  face_landmark_data *fldata = *pdata;
 
   if (opNum == 0) {
     /* option1 = face landmark decoding mode */
-    data->mode = find_key_strv (fl_modes, param);
-    if (data->mode == MEDIAPIPE_FACE_MESH) {
-      data->line_width = MEDIAPIPE_LINE_WIDTH;
-      data->point_size = MEDIAPIPE_POINT_SIZE;
+    fldata->mode = find_key_strv (fl_modes, param);
+    if (fldata->mode == MEDIAPIPE_FACE_MESH) {
+      fldata->line_width = MEDIAPIPE_LINE_WIDTH;
+      fldata->point_size = MEDIAPIPE_POINT_SIZE;
     }
   } else if (opNum == 1) {
-    if (data->mode == MEDIAPIPE_FACE_MESH) {
-      data->prob_threshold = strtod (param, NULL);
+    if (fldata->mode == MEDIAPIPE_FACE_MESH) {
+      fldata->prob_threshold = strtod (param, NULL);
     }
   } else if (opNum == 2) {
     /* option2 = output video size (width:height) */
@@ -189,8 +183,8 @@ fl_setOption (void **pdata, int opNum, const char *param)
       GST_WARNING ("mode-option-2 of facelandmark is output video dimension (WIDTH:HEIGHT). The third and later elements of the given parameter, \"%s\", are ignored.",
           param);
     }
-    data->width = dim[0];
-    data->height = dim[1];
+    fldata->width = dim[0];
+    fldata->height = dim[1];
     return TRUE;
   } else if (opNum == 3) {
     /* option3 = input video size (width:height) */
@@ -209,8 +203,8 @@ fl_setOption (void **pdata, int opNum, const char *param)
       GST_WARNING ("mode-option-3 of facelandmark is input video dimension (WIDTH:HEIGHT). The third and later elements of the given parameter, \"%s\", are ignored.",
           param);
     }
-    data->i_width = dim[0];
-    data->i_height = dim[1];
+    fldata->i_width = dim[0];
+    fldata->i_height = dim[1];
     return TRUE;
   }
 
@@ -253,12 +247,12 @@ _check_tensors (const GstTensorsConfig *config, const unsigned int limit)
 static GstCaps *
 fl_getOutCaps (void **pdata, const GstTensorsConfig *config)
 {
-  face_landmark_data *data = *pdata;
+  face_landmark_data *fldata = *pdata;
   GstCaps *caps;
   int i;
   char *str;
 
-  if (data->mode == MEDIAPIPE_FACE_MESH) {
+  if (fldata->mode == MEDIAPIPE_FACE_MESH) {
     const guint *dim1 = config->info.info[0].dimension;
     const guint *dim2 = config->info.info[1].dimension;
     if (!_check_tensors (config, 2U))
@@ -272,7 +266,7 @@ fl_getOutCaps (void **pdata, const GstTensorsConfig *config)
   }
 
   str = g_strdup_printf ("video/x-raw, format = RGBA, width = %u, height = %u",
-      data->width, data->height);
+      fldata->width, fldata->height);
   caps = gst_caps_from_string (str);
   setFramerateFromConfig (caps, config);
   g_free (str);
@@ -361,47 +355,47 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
  * @brief draw one line between two points using Bresenham's line algorithm
  * @param[out] frame The frame to be drawn
  * @param[in] fldata The face-landmark internal data
- * @param[in] stream The struct of converted streaming data
+ * @param[in] face The face information includes landmarks
  * @param[in] point_idx The array of idx in points to be drawn
  * @param[in] point_idx_len The length of point_idx
  */
 static void
-draw_lines (uint32_t *frame, face_landmark_data *fldata, _face *stream,
+draw_lines (uint32_t *frame, face_landmark_data *fldata, face_info *face,
     const uint32_t *point_idx, int point_idx_len)
 {
-  plot_point *p0, *p1;
+  landmark_point *p0, *p1;
   int i;
 
   for (i = 0; i < point_idx_len - 1; i++) {
-    p0 = &g_array_index (stream->points, plot_point, point_idx[i]);
-    p1 = &g_array_index (stream->points, plot_point, point_idx[i + 1]);
+    p0 = &g_array_index (face->points, landmark_point, point_idx[i]);
+    p1 = &g_array_index (face->points, landmark_point, point_idx[i + 1]);
     draw_line (frame, fldata, p0->x, p0->y, p1->x, p1->y);
   }
 }
 
 /**
- * @brief Draw with the given results (landmark_points[MEDIAPIPE_NUM_FACE_LANDMARKS]) to the output buffer
+ * @brief Draw with the given face info to the output buffer
  * @param[out] out_info The output buffer (RGBA plain)
  * @param[in] fldata The face-landmark internal data.
- * @param[in] stream The struct of converted streaming data
+ * @param[in] face The face information includes landmarks
  */
 static void
-draw (GstMapInfo *out_info, face_landmark_data *fldata, _face *stream)
+draw (GstMapInfo *out_info, face_landmark_data *fldata, face_info *face)
 {
   int i;
-  plot_point *pp;
+  landmark_point *pp;
 
   uint32_t *frame = (uint32_t *) out_info->data;
 
-  if (stream->prob > fldata->prob_threshold) {
+  if (face->prob > fldata->prob_threshold) {
     // Draw lines
     for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
-      draw_lines (frame, fldata, stream, stream->lines[i], stream->lines_len[i]);
+      draw_lines (frame, fldata, face, face->lines[i], face->lines_len[i]);
     }
 
     // Draw points
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
-      pp = &g_array_index (stream->points, plot_point, i);
+      pp = &g_array_index (face->points, landmark_point, i);
       draw_point (frame, fldata, pp->x, pp->y, fldata->point_size, 0xFF0000FF);
     }
   }
@@ -412,9 +406,9 @@ static GstFlowReturn
 fl_decode (void **pdata, const GstTensorsConfig *config,
     const GstTensorMemory *input, GstBuffer *outbuf)
 {
-  face_landmark_data *data = *pdata;
-  _face stream;
-  const size_t size = (size_t) data->width * data->height * 4; /* RGBA */
+  face_landmark_data *fldata = *pdata;
+  face_info face;
+  const size_t size = (size_t) fldata->width * fldata->height * 4; /* RGBA */
   GstMapInfo out_info;
   GstMemory *out_mem;
   GArray *points = NULL;
@@ -440,9 +434,9 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
 
   /** reset the buffer with alpha 0 / black */
   memset (out_info.data, 0, size);
-  stream.prob = 1.0;
+  face.prob = 1.0;
 
-  if (data->mode == MEDIAPIPE_FACE_MESH) {
+  if (fldata->mode == MEDIAPIPE_FACE_MESH) {
     const GstTensorMemory *prob;
     const GstTensorMemory *landmarks;
     float *landmarks_input;
@@ -490,35 +484,36 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     g_assert (num_tensors == 2);
 
     /* handling landmark points */
-    points = g_array_sized_new (FALSE, TRUE, sizeof (plot_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
+    points = g_array_sized_new (FALSE, TRUE, sizeof (landmark_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
 
     landmarks = &input[0];
     prob = &input[1];
     landmarks_input = (float *) landmarks->data;
-    stream.prob = _sigmoid(((float *) prob->data)[0]);
+    face.prob = _sigmoid(((float *) prob->data)[0]);
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
+      landmark_point p = { .x = 0, .y = 0, .z = 0.0f };
       int x, y;
       float lx = landmarks_input[i * 3];
       float ly = landmarks_input[i * 3 + 1];
       /** z-axis depth is not used */
-      x = (int) ((data->width * lx) / data->i_width);
-      y = (int) ((data->height * ly) / data->i_height);
+      x = (int) ((fldata->width * lx) / fldata->i_width);
+      y = (int) ((fldata->height * ly) / fldata->i_height);
       x = MAX (0, x);
       y = MAX (0, y);
-      x = MIN ((int) data->width - 1, x);
-      y = MIN ((int) data->height - 1, y);
-      g_array_append_val (points, ((plot_point){ .x = x, .y = y }));
+      p.x = MIN ((int) fldata->width - 1, x);
+      p.y = MIN ((int) fldata->height - 1, y);
+      g_array_append_val (points, p);
     }
 
-    stream.points = points;
-    stream.lines = lines;
-    stream.lines_len = lines_len;
+    face.points = points;
+    face.lines = lines;
+    face.lines_len = lines_len;
   } else {
-    GST_ERROR ("Failed to get output buffer, unknown mode %d.", data->mode);
+    GST_ERROR ("Failed to get output buffer, unknown mode %d.", fldata->mode);
     goto error_unmap;
   }
 
-  draw (&out_info, data, &stream);
+  draw (&out_info, fldata, &face);
   g_array_free (points, TRUE);
 
   gst_memory_unmap (out_mem, &out_info);

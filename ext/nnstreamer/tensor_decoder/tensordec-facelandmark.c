@@ -53,9 +53,12 @@ void init_fl (void) __attribute__ ((constructor));
 void fini_fl (void) __attribute__ ((destructor));
 
 #define MEDIAPIPE_NUM_FACE_LANDMARKS (468)
-#define MEDIAPIPE_NUM_LINES (13)
-#define MEDIAPIPE_LINE_WIDTH (1)
-#define MEDIAPIPE_POINT_SIZE (2)
+
+#define LINE_WIDTH_DEFAULT (1)
+#define LINE_COLOR_DEFAULT (0xFFFF0000)
+#define POINT_SIZE_DEFAULT (2)
+#define POINT_COLOR_DEFAULT (0xFF0000FF)
+
 #define _sigmoid(x) (1.f / (1.f + expf (-x)))
 
 /**
@@ -79,20 +82,43 @@ static const char *fl_modes[] = {
 typedef struct {
   int x;
   int y;
-  gfloat z;   /* Optional z-axis coordinate */
+  gfloat z; /** Optional z-axis coordinate */
 } landmark_point;
 
 typedef struct {
-  /* face probability */
-  float prob;
-
-  /* landmark points */
-  GArray *points; /** array of landmark point */
-
-  /* lines */
-  const uint32_t **lines; /**< idx 2d array of lines. length is NUM_LANDMARK */
-  const int *lines_len; /**< len of each array in lines */
+  int valid;
+  GArray *points; /** array of landmark points */
+  gfloat prob; /** face probability */
 } face_info;
+
+#define LINE_MAX_CONNECTIONS (40)
+
+typedef struct {
+  gint connections[LINE_MAX_CONNECTIONS];
+  gint num_connections;
+} line_data;
+
+static line_data mediapipe_keypoints[] = {
+  { /* silhouette */ { 10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361,
+        288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172,
+        58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10 },
+      37 },
+  { /* lipsUpperOuter */ { 61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291 }, 11 },
+  { /* lipsLowerOuter */ { 146, 91, 181, 84, 17, 314, 405, 321, 375, 291 }, 10 },
+  { /* lipsUpperInner */ { 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308 }, 11 },
+  { /* lipsLowerInner */ { 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308 }, 11 },
+  { /* rightEyeUpper0 */ { 246, 161, 160, 159, 158, 157, 173 }, 7 },
+  { /* rightEyeLower0 */ { 33, 7, 163, 144, 145, 153, 154, 155, 133 }, 9 },
+  { /* rightEyebrowUpper */ { 70, 63, 105, 66, 107 }, 5 },
+  { /* rightEyebrowLower */ { 46, 53, 52, 65, 55 }, 5 },
+  { /* leftEyeUpper0 */ { 466, 388, 387, 386, 385, 384, 398 }, 7 },
+  { /* leftEyeLower0 */ { 263, 249, 390, 373, 374, 380, 381, 382, 362 }, 9 },
+  { /* leftEyebrowUpper */ { 300, 293, 334, 296, 336 }, 5 },
+  { /* leftEyebrowLower */ { 300, 293, 334, 296, 336 }, 5 },
+};
+
+#define MEDIAPIPE_NUM_KEYPOINTS \
+  (sizeof (mediapipe_keypoints) / sizeof (line_data))
 
 /** @brief Internal data structure for face landmark */
 typedef struct {
@@ -105,6 +131,10 @@ typedef struct {
   /* visualizing */
   guint line_width;
   guint point_size;
+
+  /* keypoint lines */
+  line_data *keypoints;
+  guint num_keypoints;
 
   /* From option3 */
   guint width; /**< Output Video Width */
@@ -129,6 +159,8 @@ fl_init (void **pdata)
 
   fldata->mode = FACE_LANDMARK_UNKNOWN;
   fldata->prob_threshold = 0.5;
+  fldata->keypoints = NULL;
+  fldata->num_keypoints = 0;
   fldata->width = 0;
   fldata->height = 0;
   fldata->i_width = 0;
@@ -142,7 +174,7 @@ static void
 fl_exit (void **pdata)
 {
   face_landmark_data *fldata = *pdata;
-  // TODO: free inner data
+
   UNUSED (fldata);
 
   g_free (*pdata);
@@ -159,8 +191,13 @@ fl_setOption (void **pdata, int opNum, const char *param)
     /* option1 = face landmark decoding mode */
     fldata->mode = find_key_strv (fl_modes, param);
     if (fldata->mode == MEDIAPIPE_FACE_MESH) {
-      fldata->line_width = MEDIAPIPE_LINE_WIDTH;
-      fldata->point_size = MEDIAPIPE_POINT_SIZE;
+      fldata->line_width = LINE_WIDTH_DEFAULT;
+      fldata->point_size = POINT_SIZE_DEFAULT;
+      fldata->keypoints = mediapipe_keypoints;
+      fldata->num_keypoints = MEDIAPIPE_NUM_KEYPOINTS;
+    } else {
+      fldata->keypoints = NULL;
+      fldata->num_keypoints = 0;
     }
   } else if (opNum == 1) {
     if (fldata->mode == MEDIAPIPE_FACE_MESH) {
@@ -333,7 +370,7 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
   error = dx + dy;
 
   while (TRUE) {
-    draw_point (frame, fldata, x0, y0, fldata->line_width, 0xFFFF0000);
+    draw_point (frame, fldata, x0, y0, fldata->line_width, LINE_COLOR_DEFAULT);
     if (x0 == x1 && y0 == y1)
       break;
     if (error * 2 >= dy) {
@@ -360,15 +397,14 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
  * @param[in] point_idx_len The length of point_idx
  */
 static void
-draw_lines (uint32_t *frame, face_landmark_data *fldata, face_info *face,
-    const uint32_t *point_idx, int point_idx_len)
+draw_lines (uint32_t *frame, face_landmark_data *fldata, face_info *face, line_data *keypoint)
 {
   landmark_point *p0, *p1;
   int i;
 
-  for (i = 0; i < point_idx_len - 1; i++) {
-    p0 = &g_array_index (face->points, landmark_point, point_idx[i]);
-    p1 = &g_array_index (face->points, landmark_point, point_idx[i + 1]);
+  for (i = 0; i < keypoint->num_connections - 1; i++) {
+    p0 = &g_array_index (face->points, landmark_point, keypoint->connections[i]);
+    p1 = &g_array_index (face->points, landmark_point, keypoint->connections[i + 1]);
     draw_line (frame, fldata, p0->x, p0->y, p1->x, p1->y);
   }
 }
@@ -382,22 +418,20 @@ draw_lines (uint32_t *frame, face_landmark_data *fldata, face_info *face,
 static void
 draw (GstMapInfo *out_info, face_landmark_data *fldata, face_info *face)
 {
-  int i;
-  landmark_point *pp;
+  guint i;
+  landmark_point *p;
 
   uint32_t *frame = (uint32_t *) out_info->data;
 
-  if (face->prob > fldata->prob_threshold) {
-    // Draw lines
-    for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
-      draw_lines (frame, fldata, face, face->lines[i], face->lines_len[i]);
-    }
+  // Draw lines
+  for (i = 0; i < fldata->num_keypoints; i++) {
+    draw_lines (frame, fldata, face, &fldata->keypoints[i]);
+  }
 
-    // Draw points
-    for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
-      pp = &g_array_index (face->points, landmark_point, i);
-      draw_point (frame, fldata, pp->x, pp->y, fldata->point_size, 0xFF0000FF);
-    }
+  // Draw points
+  for (i = 0; i < face->points->len; i++) {
+    p = &g_array_index (face->points, landmark_point, i);
+    draw_point (frame, fldata, p->x, p->y, fldata->point_size, POINT_COLOR_DEFAULT);
   }
 }
 
@@ -407,11 +441,10 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     const GstTensorMemory *input, GstBuffer *outbuf)
 {
   face_landmark_data *fldata = *pdata;
-  face_info face;
+  face_info face = { .valid = FALSE, .points = NULL, .prob = 0.0f };
   const size_t size = (size_t) fldata->width * fldata->height * 4; /* RGBA */
   GstMapInfo out_info;
   GstMemory *out_mem;
-  GArray *points = NULL;
   const guint num_tensors = config->info.num_tensors;
   gboolean need_output_alloc;
 
@@ -442,79 +475,45 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     float *landmarks_input;
     size_t i;
 
-    /** idx of lines which connecting landmarks */
-    const uint32_t silhouette[] = { 10, 338, 297, 332, 284, 251, 389, 356, 454,
-      323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
-      172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10 };
-    const uint32_t lipsUpperOuter[] = { 61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291 };
-    const uint32_t lipsLowerOuter[] = { 146, 91, 181, 84, 17, 314, 405, 321, 375, 291 };
-    const uint32_t lipsUpperInner[] = { 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308 };
-    const uint32_t lipsLowerInner[] = { 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308 };
-
-    const uint32_t rightEyeUpper0[] = { 246, 161, 160, 159, 158, 157, 173 };
-    const uint32_t rightEyeLower0[] = { 33, 7, 163, 144, 145, 153, 154, 155, 133 };
-
-    const uint32_t rightEyebrowUpper[] = { 70, 63, 105, 66, 107 };
-    const uint32_t rightEyebrowLower[] = { 46, 53, 52, 65, 55 };
-
-    const uint32_t leftEyeUpper0[] = { 466, 388, 387, 386, 385, 384, 398 };
-    const uint32_t leftEyeLower0[] = { 263, 249, 390, 373, 374, 380, 381, 382, 362 };
-
-    const uint32_t leftEyebrowUpper[] = { 300, 293, 334, 296, 336 };
-    const uint32_t leftEyebrowLower[] = { 276, 283, 282, 295, 285 };
-
-    const uint32_t *lines[MEDIAPIPE_NUM_LINES] = {
-      silhouette,
-      lipsUpperOuter,
-      lipsLowerOuter,
-      lipsUpperInner,
-      lipsLowerInner,
-      rightEyeUpper0,
-      rightEyeLower0,
-      rightEyebrowUpper,
-      rightEyebrowLower,
-      leftEyeUpper0,
-      leftEyeLower0,
-      leftEyebrowUpper,
-      leftEyebrowLower,
-    };
-    const int lines_len[MEDIAPIPE_NUM_LINES]
-        = { 37, 11, 10, 11, 11, 7, 9, 5, 5, 7, 9, 5, 5 };
-
     g_assert (num_tensors == 2);
 
     /* handling landmark points */
-    points = g_array_sized_new (FALSE, TRUE, sizeof (landmark_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
+    face.points = g_array_sized_new (
+        FALSE, TRUE, sizeof (landmark_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
 
     landmarks = &input[0];
     prob = &input[1];
     landmarks_input = (float *) landmarks->data;
-    face.prob = _sigmoid(((float *) prob->data)[0]);
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
       landmark_point p = { .x = 0, .y = 0, .z = 0.0f };
       int x, y;
       float lx = landmarks_input[i * 3];
       float ly = landmarks_input[i * 3 + 1];
-      /** z-axis depth is not used */
+      float lz = landmarks_input[i * 3 + 2];
+
       x = (int) ((fldata->width * lx) / fldata->i_width);
       y = (int) ((fldata->height * ly) / fldata->i_height);
       x = MAX (0, x);
       y = MAX (0, y);
       p.x = MIN ((int) fldata->width - 1, x);
       p.y = MIN ((int) fldata->height - 1, y);
-      g_array_append_val (points, p);
+      p.z = lz;
+      g_array_append_val (face.points, p);
     }
-
-    face.points = points;
-    face.lines = lines;
-    face.lines_len = lines_len;
+    face.prob = _sigmoid (((float *) prob->data)[0]);
+    face.valid = (face.prob >= fldata->prob_threshold);
   } else {
     GST_ERROR ("Failed to get output buffer, unknown mode %d.", fldata->mode);
     goto error_unmap;
   }
 
-  draw (&out_info, fldata, &face);
-  g_array_free (points, TRUE);
+  if (face.valid) {
+    draw (&out_info, fldata, &face);
+  }
+
+  if (face.points != NULL) {
+    g_array_free (face.points, TRUE);
+  }
 
   gst_memory_unmap (out_mem, &out_info);
 

@@ -371,12 +371,9 @@ draw_lines (uint32_t *frame, face_landmark_data *fldata, _face *stream,
   plot_point *p0, *p1;
   int i;
 
-  // printf("num points = %d\n", point_idx_len);
   for (i = 0; i < point_idx_len - 1; i++) {
-    // printf("%d %d\n", point_idx[i], point_idx[i+1]);
     p0 = &g_array_index (stream->points, plot_point, point_idx[i]);
     p1 = &g_array_index (stream->points, plot_point, point_idx[i + 1]);
-    // printf("%d %d %d %d\n", p0->x, p0->y, p1->x, p1->y);
     draw_line (frame, fldata, p0->x, p0->y, p1->x, p1->y);
   }
 }

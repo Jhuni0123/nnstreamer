@@ -358,7 +358,7 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
  * @brief draw one line between two points using Bresenham's line algorithm
  * @param[out] frame The frame to be drawn
  * @param[in] fldata The face-landmark internal data
- * @param[in] points The array of all landmark points
+ * @param[in] stream The struct of converted streaming data
  * @param[in] point_idx The array of idx in points to be drawn
  * @param[in] point_idx_len The length of point_idx
  */
@@ -383,7 +383,7 @@ draw_lines (uint32_t *frame, face_landmark_data *fldata, _face *stream,
  * @brief Draw with the given results (landmark_points[MEDIAPIPE_NUM_FACE_LANDMARKS]) to the output buffer
  * @param[out] out_info The output buffer (RGBA plain)
  * @param[in] fldata The face-landmark internal data.
- * @param[in] results The final results to be drawn.
+ * @param[in] stream The struct of converted streaming data
  */
 static void
 draw (GstMapInfo *out_info, face_landmark_data *fldata, _face *stream)

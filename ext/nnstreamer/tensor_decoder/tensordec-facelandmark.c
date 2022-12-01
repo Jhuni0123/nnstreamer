@@ -84,6 +84,15 @@ typedef struct {
   int y;
 } plot_point;
 
+typedef struct {
+  /* landmark points */
+  GArray *points; /** array of landmark point */
+
+  /* lines */
+  const uint32_t **lines; /**< idx 2d array of lines. length is NUM_LANDMARK */
+  const int *lines_len; /**< len of each array in lines */
+} _face;
+
 /** @brief Internal data structure for face landmark */
 typedef struct {
   face_landmark_modes mode; /**< The face landmark decoding mode */
@@ -99,13 +108,6 @@ typedef struct {
   /* From option3 */
   guint i_width; /**< Input Video Width */
   guint i_height; /**< Input Video Height */
-
-  /* landmark points */
-  GArray *points; /** array of landmark point */
-
-  /* lines */
-  const uint32_t **lines; /**< idx 2d array of lines. length is NUM_LANDMARK */
-  const int *lines_len; /**< len of each array in lines */
 } face_landmark_data;
 
 /** @brief tensordec-plugin's GstTensorDecoderDef callback */
@@ -347,7 +349,7 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
  * @param[in] point_idx_len The length of point_idx
  */
 static void
-draw_lines (uint32_t *frame, face_landmark_data *fldata, const uint32_t *point_idx, int point_idx_len)
+draw_lines (uint32_t *frame, face_landmark_data *fldata, _face *stream, const uint32_t *point_idx, int point_idx_len)
 {
   plot_point *p0, *p1;
   int i;
@@ -355,8 +357,8 @@ draw_lines (uint32_t *frame, face_landmark_data *fldata, const uint32_t *point_i
   // printf("num points = %d\n", point_idx_len);
   for (i = 0; i < point_idx_len - 1; i++) {
     // printf("%d %d\n", point_idx[i], point_idx[i+1]);
-    p0 = &g_array_index (fldata->points, plot_point, point_idx[i]);
-    p1 = &g_array_index (fldata->points, plot_point, point_idx[i + 1]);
+    p0 = &g_array_index (stream->points, plot_point, point_idx[i]);
+    p1 = &g_array_index (stream->points, plot_point, point_idx[i + 1]);
     // printf("%d %d %d %d\n", p0->x, p0->y, p1->x, p1->y);
     draw_line (frame, fldata, p0->x, p0->y, p1->x, p1->y);
   }
@@ -369,7 +371,7 @@ draw_lines (uint32_t *frame, face_landmark_data *fldata, const uint32_t *point_i
  * @param[in] results The final results to be drawn.
  */
 static void
-draw (GstMapInfo *out_info, face_landmark_data *fldata)
+draw (GstMapInfo *out_info, face_landmark_data *fldata, _face *stream)
 {
   int i;
   plot_point *pp;
@@ -378,12 +380,12 @@ draw (GstMapInfo *out_info, face_landmark_data *fldata)
 
   // Draw lines
   for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
-    draw_lines (frame, fldata, fldata->lines[i], fldata->lines_len[i]);
+    draw_lines (frame, fldata, stream, stream->lines[i], stream->lines_len[i]);
   }
 
   // Draw points
   for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
-    pp = &g_array_index (fldata->points, plot_point, i);
+    pp = &g_array_index (stream->points, plot_point, i);
     draw_point (frame, fldata, pp->x, pp->y, fldata->point_size, 0xFF0000FF);
   }
 }
@@ -394,6 +396,7 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     const GstTensorMemory *input, GstBuffer *outbuf)
 {
   face_landmark_data *data = *pdata;
+  _face stream;
   const size_t size = (size_t) data->width * data->height * 4; /* RGBA */
   GstMapInfo out_info;
   GstMemory *out_mem;
@@ -488,15 +491,15 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
       g_array_append_val (points, ((plot_point){ .x = x, .y = y }));
     }
 
-    data->points = points;
-    data->lines = lines;
-    data->lines_len = lines_len;
+    stream.points = points;
+    stream.lines = lines;
+    stream.lines_len = lines_len;
   } else {
     GST_ERROR ("Failed to get output buffer, unknown mode %d.", data->mode);
     goto error_unmap;
   }
 
-  draw (&out_info, data);
+  draw (&out_info, data, &stream);
   g_array_free (points, TRUE);
 
   gst_memory_unmap (out_mem, &out_info);

@@ -56,6 +56,7 @@ void fini_fl (void) __attribute__ ((destructor));
 #define MEDIAPIPE_NUM_LINES (13)
 #define MEDIAPIPE_LINE_WIDTH (1)
 #define MEDIAPIPE_POINT_SIZE (2)
+#define _sigmoid(x) (1.f / (1.f + expf (-x)))
 
 /**
  * @brief face landmark model enum
@@ -494,8 +495,7 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     landmarks = &input[0];
     prob = &input[1];
     landmarks_input = (float *) landmarks->data;
-    stream.prob = ((float *) prob->data)[0];
-    stream.prob = 1 / (1 + exp (-stream.prob)); /* sigmoid */
+    stream.prob = _sigmoid(((float *) prob->data)[0]);
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
       int x, y;
       float lx = landmarks_input[i * 3];

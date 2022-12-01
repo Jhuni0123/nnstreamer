@@ -31,7 +31,7 @@
  * option1: Decoder mode of face landmark.
  *          Available: mediapipe-face-mesh
  * option2: Decoder mode dependent options
- *          [mediapipe-face-mesh]: face likelihood threshold (NOT probability)
+ *          [mediapipe-face-mesh]: face probability threshold
  * option3: Output video size (width, height)
  * option4: Input video size (width, height)
  *
@@ -39,6 +39,7 @@
 
 #include <glib.h>
 #include <gst/gstinfo.h>
+#include <math.h>
 #include <nnstreamer_log.h>
 #include <nnstreamer_plugin_api.h>
 #include <nnstreamer_plugin_api_decoder.h>
@@ -87,8 +88,8 @@ typedef struct {
 } plot_point;
 
 typedef struct {
-  /* face flag */
-  float flag;
+  /* face probability */
+  float prob;
 
   /* landmark points */
   GArray *points; /** array of landmark point */
@@ -104,7 +105,7 @@ typedef struct {
   face_landmark_modes mode; /**< The face landmark decoding mode */
 
   /* From option2 */
-  float flag_threshold;
+  float prob_threshold;
 
   /* visualizing */
   guint line_width;
@@ -132,7 +133,7 @@ fl_init (void **pdata)
   }
 
   data->mode = FACE_LANDMARK_UNKNOWN;
-  data->flag_threshold = 0.5;
+  data->prob_threshold = 0.5;
   data->width = 0;
   data->height = 0;
   data->i_width = 0;
@@ -168,7 +169,7 @@ fl_setOption (void **pdata, int opNum, const char *param)
     }
   } else if (opNum == 1) {
     if (data->mode == MEDIAPIPE_FACE_MESH) {
-      data->flag_threshold = strtod (param, NULL);
+      data->prob_threshold = strtod (param, NULL);
     }
   } else if (opNum == 2) {
     /* option2 = output video size (width:height) */
@@ -245,6 +246,7 @@ _check_tensors (const GstTensorsConfig *config, const unsigned int limit)
  * The first tensor is points of face landmarks.
  *    (3 * MEDIAPIPE_NUM_FACE_LANDMARKS) : 1 : 1 : 1
  * The second tensor is likelihood of face being present
+ *    changed to probability in fl_decode
  *    1 : 1 : 1 : 1
  */
 static GstCaps *
@@ -393,7 +395,7 @@ draw (GstMapInfo *out_info, face_landmark_data *fldata, _face *stream)
 
   uint32_t *frame = (uint32_t *) out_info->data;
 
-  if (stream->flag > fldata->flag_threshold) {
+  if (stream->prob > fldata->prob_threshold) {
     // Draw lines
     for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
       draw_lines (frame, fldata, stream, stream->lines[i], stream->lines_len[i]);
@@ -440,14 +442,13 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
 
   /** reset the buffer with alpha 0 / black */
   memset (out_info.data, 0, size);
-  stream.flag = 1.0;
+  stream.prob = 1.0;
 
   if (data->mode == MEDIAPIPE_FACE_MESH) {
-    const GstTensorMemory *flag;
+    const GstTensorMemory *prob;
     const GstTensorMemory *landmarks;
     float *landmarks_input;
     size_t i;
-    // float * faceflag = (float *) (&input[1])->data;
 
     /** idx of lines which connecting landmarks */
     const uint32_t silhouette[] = { 10, 338, 297, 332, 284, 251, 389, 356, 454,
@@ -494,9 +495,10 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     points = g_array_sized_new (FALSE, TRUE, sizeof (plot_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
 
     landmarks = &input[0];
-    flag = &input[1];
+    prob = &input[1];
     landmarks_input = (float *) landmarks->data;
-    stream.flag = ((float *) flag->data)[0];
+    stream.prob = ((float *) prob->data)[0];
+    stream.prob = 1 / (1 + exp (-stream.prob)); /* sigmoid */
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
       int x, y;
       float lx = landmarks_input[i * 3];

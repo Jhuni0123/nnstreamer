@@ -30,8 +30,10 @@
  *
  * option1: Decoder mode of face landmark.
  *          Available: mediapipe-face-mesh
- * option2: Output video size (width, height)
- * option3: Input video size (width, height)
+ * option2: Decoder mode dependent options
+ *          [mediapipe-face-mesh]: face likelihood threshold (NOT probability)
+ * option3: Output video size (width, height)
+ * option4: Input video size (width, height)
  *
  */
 
@@ -85,6 +87,9 @@ typedef struct {
 } plot_point;
 
 typedef struct {
+  /* face flag */
+  float flag;
+
   /* landmark points */
   GArray *points; /** array of landmark point */
 
@@ -95,17 +100,21 @@ typedef struct {
 
 /** @brief Internal data structure for face landmark */
 typedef struct {
+  /* From option1 */
   face_landmark_modes mode; /**< The face landmark decoding mode */
+
+  /* From option2 */
+  float flag_threshold;
 
   /* visualizing */
   guint line_width;
   guint point_size;
 
-  /* From option2 */
+  /* From option3 */
   guint width; /**< Output Video Width */
   guint height; /**< Output Video Height */
 
-  /* From option3 */
+  /* From option4 */
   guint i_width; /**< Input Video Width */
   guint i_height; /**< Input Video Height */
 } face_landmark_data;
@@ -123,6 +132,7 @@ fl_init (void **pdata)
   }
 
   data->mode = FACE_LANDMARK_UNKNOWN;
+  data->flag_threshold = 0.5;
   data->width = 0;
   data->height = 0;
   data->i_width = 0;
@@ -157,6 +167,10 @@ fl_setOption (void **pdata, int opNum, const char *param)
       data->point_size = MEDIAPIPE_POINT_SIZE;
     }
   } else if (opNum == 1) {
+    if (data->mode == MEDIAPIPE_FACE_MESH) {
+      data->flag_threshold = strtod (param, NULL);
+    }
+  } else if (opNum == 2) {
     /* option2 = output video size (width:height) */
     tensor_dim dim;
     int rank = gst_tensor_parse_dimension (param, dim);
@@ -176,7 +190,7 @@ fl_setOption (void **pdata, int opNum, const char *param)
     data->width = dim[0];
     data->height = dim[1];
     return TRUE;
-  } else if (opNum == 2) {
+  } else if (opNum == 3) {
     /* option3 = input video size (width:height) */
     tensor_dim dim;
     int rank = gst_tensor_parse_dimension (param, dim);
@@ -349,7 +363,8 @@ draw_line (uint32_t *frame, face_landmark_data *fldata, int x0, int y0, int x1, 
  * @param[in] point_idx_len The length of point_idx
  */
 static void
-draw_lines (uint32_t *frame, face_landmark_data *fldata, _face *stream, const uint32_t *point_idx, int point_idx_len)
+draw_lines (uint32_t *frame, face_landmark_data *fldata, _face *stream,
+    const uint32_t *point_idx, int point_idx_len)
 {
   plot_point *p0, *p1;
   int i;
@@ -378,15 +393,17 @@ draw (GstMapInfo *out_info, face_landmark_data *fldata, _face *stream)
 
   uint32_t *frame = (uint32_t *) out_info->data;
 
-  // Draw lines
-  for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
-    draw_lines (frame, fldata, stream, stream->lines[i], stream->lines_len[i]);
-  }
+  if (stream->flag > fldata->flag_threshold) {
+    // Draw lines
+    for (i = 0; i < MEDIAPIPE_NUM_LINES; i++) {
+      draw_lines (frame, fldata, stream, stream->lines[i], stream->lines_len[i]);
+    }
 
-  // Draw points
-  for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
-    pp = &g_array_index (stream->points, plot_point, i);
-    draw_point (frame, fldata, pp->x, pp->y, fldata->point_size, 0xFF0000FF);
+    // Draw points
+    for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
+      pp = &g_array_index (stream->points, plot_point, i);
+      draw_point (frame, fldata, pp->x, pp->y, fldata->point_size, 0xFF0000FF);
+    }
   }
 }
 
@@ -423,8 +440,10 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
 
   /** reset the buffer with alpha 0 / black */
   memset (out_info.data, 0, size);
+  stream.flag = 1.0;
 
   if (data->mode == MEDIAPIPE_FACE_MESH) {
+    const GstTensorMemory *flag;
     const GstTensorMemory *landmarks;
     float *landmarks_input;
     size_t i;
@@ -475,8 +494,9 @@ fl_decode (void **pdata, const GstTensorsConfig *config,
     points = g_array_sized_new (FALSE, TRUE, sizeof (plot_point), MEDIAPIPE_NUM_FACE_LANDMARKS);
 
     landmarks = &input[0];
+    flag = &input[1];
     landmarks_input = (float *) landmarks->data;
-
+    stream.flag = ((float *) flag->data)[0];
     for (i = 0; i < MEDIAPIPE_NUM_FACE_LANDMARKS; i++) {
       int x, y;
       float lx = landmarks_input[i * 3];

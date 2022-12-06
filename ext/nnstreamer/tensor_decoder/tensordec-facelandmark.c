@@ -114,7 +114,7 @@ static line_data mediapipe_keypoints[] = {
   { /* leftEyeUpper0 */ { 466, 388, 387, 386, 385, 384, 398 }, 7 },
   { /* leftEyeLower0 */ { 263, 249, 390, 373, 374, 380, 381, 382, 362 }, 9 },
   { /* leftEyebrowUpper */ { 300, 293, 334, 296, 336 }, 5 },
-  { /* leftEyebrowLower */ { 300, 293, 334, 296, 336 }, 5 },
+  { /* leftEyebrowLower */ { 276, 283, 282, 295, 285 }, 5 },
 };
 
 #define MEDIAPIPE_NUM_KEYPOINTS \
